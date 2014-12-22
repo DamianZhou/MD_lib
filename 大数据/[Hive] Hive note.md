@@ -94,9 +94,38 @@ sftp > put E:\aaa.txt
 ```
 上传到 Linux 主目录
 
-##Hive 相关经验
 
-###----------Hive 的配置
+
+##Hive 的配置
+
+###Hive CLI 查看可用选项
+查看当前Hive环境的可用CLI选项
+```bash
+$ hive --help --service cli
+```
+> 也可直接使用`hive -h`来输出，不过会提示空参数，不推荐。
+
+hive 0.13.1的信息如下：
+```xml
+usage: hive
+ -d,--define <key=value>          Variable subsitution to apply to hive
+                                  commands. e.g. -d A=B or --define A=B
+    --database <databasename>     Specify the database to use
+ -e <quoted-query-string>         SQL from command line
+ -f <filename>                    SQL from files
+ -H,--help                        Print help information
+ -h <hostname>                    connecting to Hive Server on remote host
+    --hiveconf <property=value>   Use value for given property
+    --hivevar <key=value>         Variable subsitution to apply to hive
+                                  commands. e.g. --hivevar A=B
+ -i <filename>                    Initialization SQL file
+ -p <port>                        connecting to Hive Server on port number
+ -S,--silent                      Silent mode in interactive shell
+ -v,--verbose                     Verbose mode (echo executed SQL to the
+                                  console)
+```
+
+
 ###hive的预配置
 hive CLI 的 `-i` 参数，允许用户指定一个文件，在CLI启动时，会在提示符出现之前先执行这个文件。
 可以预先配置 本地运行模式、执行的字段显示 等等。
@@ -195,8 +224,7 @@ hive> set hive.mapred.mode = nostrict;
 
 
 
-###----------hive 调用 命令
----
+##hive 调用 命令
 ###在Hive CLI中调用 hadoop 的 dfs 命令
 在Hive CLI 中执行 hadoop 的 dfs 命令，只需要将 hadoop 命令中的关键字 ”hadoop“去掉，然后使用分号结尾即可。
 ```hive
@@ -265,7 +293,7 @@ name3 30
 ```bash
 $ hive -f /path/to/file/withqueries. hql
 ```
-###------搜索技术
+##Hive小技巧——搜索技术
 
 ### 筛选搜索结果
 
@@ -323,7 +351,7 @@ Time taken: 13.85 seconds, Fetched: 3 row(s)
 ```
 
 
-###------基础知识
+##基础知识
 
 ####基础1： ORDER BY & SORT BY 区别
 
@@ -383,20 +411,20 @@ UNION可以用于同一个源表的合并，逻辑上相当于将一个长的WHE
 e.g.
 
 原始的语句：
-```hive
+```sql
 FROM (
  SELECT * FROM people JOIN cart
  ON (cart. people_id=people. id) WHERE firstname='john'
 ) a SELECT a. lastname WHERE a. id=3;
 ```
 创建视图：
-```hive
+```sql
 CREATE VIEW shorter_join AS
 SELECT * FROM people JOIN cart
 ON (cart. people_id=people. id) WHERE firstname='john' ;
 ```
 原始的语句可以写成：
-```hive
+```sql
 SELECT lastname FROM shorter_join WHERE id=3;
 ```
 
@@ -405,5 +433,70 @@ SELECT lastname FROM shorter_join WHERE id=3;
 
 ####基础5： 索引
 Hive提供有限的索引功能。暂时还没有提供很多功能。
+
+####基础6：Hive的锁机制
+Hive的锁机制是通过zookeeper来实现的。需要安装配置zookeeper。
+
+>Note:
+如果配合HBase，zookeeper由HBase管理，Hive无需配置。
+
+#####查看锁
+查看当前所有的锁：` SHOW LOCKS`
+```sql
+hive> SHOW LOCKS;
+default@people_20111230 SHARED
+default@places SHARED
+default@places@hit_date=20111230 SHARED
+```
+
+Hive还支持部分查询（focused queries）
+e.g.
+places 是一个==分区表==
+```sql
+hive> SHOW LOCKS places EXTENDED;
+default@places SHARED
+...
+hive> SHOW LOCKS places PARTITION (...);
+default@places SHARED
+...
+hive> SHOW LOCKS places PARTITION (...) EXTENDED;
+default@places SHARED
+...
+```
+
+Hive支持两种锁：
+
+ 1. A `shared lock 共享锁` is acquired when a table is read.只读操作获得共享锁。
+Multiple, concurrent shared locks are allowed.并发的共享锁是允许的。
+ 2. An `exclusive lock 排他锁` is required for all other operations that modify the table in some way.读以外的所有操作将获得排他锁。
+ They not only freeze out other table-mutating operations, they also prevent queries by other processes.不仅阻止别的修改表的操作，还阻止其他进程的查询操作。
+
+对于分区表，当一个==分区==获得排他锁，这个==表本身==自动获得共享锁（只读），防止在操作的过程中被别的进程进行drop等操作。
+
+#####管理和使用锁
+You can also manage locks explicitly.
+
+假设在一个Hive session中对表people添加排他锁：
+```sql
+hive> LOCK TABLE people EXCLUSIVE;
+```
+
+此时，另一个 Hive session 来查询这个people表
+```sql
+hive> SELECT COUNT(*) FROM people;
+
+conflicting lock present for default@people mode SHARED
+FAILED: Error in acquiring locks: locks on the underlying objects
+cannot be acquired. retry after some time
+```
+The table can be unlocked using the `UNLOCK TABLE` statement, after which queries from other sessions will work again:
+```sql
+hive> UNLOCK TABLE people;
+```
+
+
+
+
+
 
 
